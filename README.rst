@@ -181,8 +181,8 @@ or alternatively, you can send Requests in batches that are less than ``ulimit -
             pass # do something with resp.content
         print("Active TCP connections after:", get_tcp_conn_count())
 
-    for i in range(0, len(urls), batch_size):
-        send_batch(urls[i:i+batch_size]) 
+    for i in range(0, len(urls), BATCH_SIZE):
+        send_batch(urls[i:i+BATCH_SIZE]) 
 
 >>> sending batch [0:10]
 >>> Active TCP connections before: 0
