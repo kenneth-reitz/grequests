@@ -182,6 +182,7 @@ or alternatively, you can send Requests in batches that are less than ``ulimit -
         print("Active TCP connections after:", get_tcp_conn_count())
 
     for i in range(0, len(urls), BATCH_SIZE):
+        print(f"sending batch [{i}:{i+BATCH_SIZE}]")
         send_batch(urls[i:i+BATCH_SIZE]) 
 
 >>> sending batch [0:10]
