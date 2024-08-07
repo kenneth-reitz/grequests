@@ -1,7 +1,6 @@
 .coverage
 MANIFEST
 coverage.xml
-nosetests.xml
 junit-report.xml
 pylint.txt
 toy.py
