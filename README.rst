@@ -118,7 +118,88 @@ Because ``grequests`` leverages ``gevent`` (which in turn uses monkeypatching fo
 
 
 
+grequests - "Too many open files" error
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Be aware, that the Request and Response objects contain a reference to the underlying HTTP[S]Connection, which will be kept alive by default. That means every Request and Response object will hold a reference to an open TCP socket, that will consume memory and consume a file descriptor to the TCP socket. If you create more than ``ulimit -u`` requests, you will run out of open file descriptors per process and will see  ``Too many open files`` error. For example:
+
+.. code-block:: python
+
+    import os
+    import grequests
+    from subprocess import check_output
+
+    def get_tcp_conn_count():
+        cmd = f"lsof -i -n | grep {os.getpid()} | grep https | wc -l"
+        out = check_output(['bash', '-c', cmd]).decode().strip()
+        return out
+
+    reqs = [grequests.get("https://www.google.com") for i in range(10)]
+    resps = grequests.map(reqs)
+    print("File descriptors created:", [resp.raw._pool.pool.queue[-1].sock.fileno() for resp in resps]) 
+    print("Active TCP connections:", get_tcp_conn_count())
+
+>>> File descriptors created: [89, 93, 84, 91, 85, 86, 87, 88, 92, 90]
+>>> Active TCP connections: 10
+
+These sockets are closed when:
+    - both Request and Response object are garbage collected, or
+    - when the underling HTTPSConnection is closed manually.
+
+Be very careful about keeping open Request/Response when crawling large amount of URLs and sending hundreds/thousands of requests. Make sure to either close the underlying connection pool after processing Response object: ``resp.raw._pool.close()``, so that you don't have more than ``ulimut -u`` active TCP connections at any point of program's lifetime.
+
+.. code-block:: python
+
+    for resp in grequests.imap(reqs):
+        # do something with resp.content
+        resp.raw._pool.close() # close the TCP connection and release file descriptor
+
+
+or alternatively, you can send Requests in batches that are less than ``ulimit -u`` and let the Garbage Collector cleanup all the resources after each batch run.
+
+.. code-block:: python
+
+    import os
+    import grequests
+    from subprocess import check_output
+
+    urls = ["https://www.google.com/"] * 100
+    BATCH_SIZE = 10
+
+    def get_tcp_conn_count():
+        cmd = f"lsof -i -n | grep {os.getpid()} | grep https | wc -l"
+        out = check_output(['bash', '-c', cmd]).decode().strip()
+        return out
+
+    def send_batch(batch_urls: list):
+        """ batch_size urls are converted into requests, sent to grequests, responses processed and 
+            TCP sockets are promptly garbage collected after return """
+    
+        batch_reqs = [grequests.get(url) for url in batch_urls]
+        print("Active TCP connections before:", get_tcp_conn_count())
+        for resp in grequests.imap(batch_reqs, size=BATCH_SIZE):
+            pass # do something with resp.content
+        print("Active TCP connections after:", get_tcp_conn_count())
+
+    for i in range(0, len(urls), BATCH_SIZE):
+        print(f"sending batch [{i}:{i+BATCH_SIZE}]")
+        send_batch(urls[i:i+BATCH_SIZE]) 
+
+>>> sending batch [0:10]
+>>> Active TCP connections before: 0
+>>> Active TCP connections after: 10
+>>> sending batch [10:20]
+>>> Active TCP connections before: 0
+>>> Active TCP connections after: 10
+>>> sending batch [20:30]
+>>> Active TCP connections before: 0
+>>> Active TCP connections after: 10
+>>> ...
+>>> sending batch [90:100]
+>>> Active TCP connections before: 0
+>>> Active TCP connections after: 10
+
+As you can see, ``BATCH_SIZE`` connections are created and promptly closed after each batch run, and the risk of hitting too many open sockets is mitigated.
 
 
 
